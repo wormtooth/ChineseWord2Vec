@@ -1,0 +1,5 @@
+gensim==3.8.3
+jieba
+opencc
+requests
+tqdm
