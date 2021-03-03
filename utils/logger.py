@@ -76,7 +76,7 @@ class BaseLogger:
         """Log messages to stdout.
         """
         for handler in self.logger.handlers:
-            if isinstance(handler, logging.StreamHandler):
+            if handler.__class__ is logging.StreamHandler:
                 return
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(self.level)
