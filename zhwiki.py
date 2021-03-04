@@ -23,12 +23,6 @@ def download_zhwiki():
     logger.info(f'zhwiki downloaded: {path}')
 
 
-def articles_gen(path):
-    wiki = WikiCorpus(path, dictionary={})
-    for article in wiki.get_texts():
-        yield article
-
-
 def preprocess_zhwiki():
     output_path = settings.ZHWIKI_CLEANED_PATH
     if os.path.exists(output_path):
@@ -43,7 +37,8 @@ def preprocess_zhwiki():
         RemoveNonChineseWords(),
         RemoveStopwords(),
     ])
-    processor.process_all(articles_gen, input_path, output_path)
+    wiki = WikiCorpus(input_path, dictionary={})
+    processor.process_all(wiki.get_texts(), output_path)
 
 
 def train_zhwiki():

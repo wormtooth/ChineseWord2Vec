@@ -1,7 +1,7 @@
 import json
 import os
 from multiprocessing import Process, Queue, Value
-from typing import Iterable
+from typing import Iterable, List
 
 import jieba
 import settings
@@ -119,52 +119,55 @@ class Write2File(Pipeline):
         return article
 
 
-def enqueue_articles(processor: 'Processor'):
-    """Read articles from `processor.articles` and put them into `processor.source`.
+def _worker(pipelines: List[Pipeline], source: Queue, sink: Queue):
+    """Process articles from `soure` and put the processed article into `sink`.
+
+    Note:
+        `ConvertT2S` pipeline needs to be reinitialized in order to avoid problems
+        on macOS.
 
     Args:
-        processor (Processor): The processor is a subclass of `Pipeline`, and it contains
-        multiple pipelines to process articles.
+        pipelines (List[Pipeline]): list of pipelines to process articles.
+        source (Queue): source of articles to process.
+        sink (Queue): sink of processed articles.
     """
-    for article in processor.articles_gen(processor.input_path):
-        processor.source.put(article)
-    for _ in range(processor.workers):
-        processor.source.put('EXIT')
+    pipelines = list(pipelines)
+    for i, p in enumerate(pipelines):
+        if isinstance(p, ConvertT2S):
+            pipelines[i] = ConvertT2S()
 
+    def processor(article):
+        for p in pipelines:
+            article = p(article)
+        return article
 
-def process_articles(processor: 'Processor'):
-    """Process articles from `processor.soure` and put the processed article
-    into `processor.sink`.
-
-    Args:
-        processor (Processor): The processor is a subclass of `Pipeline`, and it contains
-        multiple pipelines to process articles.
-    """
     while True:
-        article = processor.source.get()
+        article = source.get()
         if article == 'EXIT':
             return
         article = list(processor(article))
-        processor.sink.put(article)
+        sink.put(article)
 
 
-def write_articles(processor: 'Processor'):
+def _writer(path: str, sink: Queue):
     """Write articles from `processor.sink` to disk.
 
     Args:
-        processor (Processor): The processor is a subclass of `Pipeline`, and it contains
-        multiple pipelines to process articles.
+        path (str): Path to the file on disk.
+        sink (Queue): Processed articles to write on disk.
     """
-    writer = Write2File(processor.output_path)
+    writer = Write2File(path)
+    logger = settings.LOGGER
+    count = 0
     while True:
-        article = processor.sink.get()
+        article = sink.get()
         if article == 'EXIT':
+            logger.info(f'All {count} articles saved to {path}.')
             return
-        processor.articles_count.value += 1
-        if processor.articles_count.value % 10000 == 0:
-            processor.logger.info(
-                f'{processor.articles_count.value} articles processed.')
         writer(article)
+        count += 1
+        if count % 10000 == 0:
+            logger.info(f'{count} articles processed.')
 
 
 class Processor(Pipeline):
@@ -179,73 +182,88 @@ class Processor(Pipeline):
         return article
 
     def process_all_single_thread(self,
-                                  article_gen,
-                                  input_path,
-                                  output_path):
+                                  articles: Iterable[Iterable[str]],
+                                  output_path: str):
+        """Process all articles within a single thread.
+
+        Args:
+            articles (Iterable[Iterable[str]]): Articles to process.
+            output_path (str): Path to the output file on disk to save processed articles.
+        """
         self.logger.info('Begin to process all articles ...')
-        articles_count = 0
+
+        count = 0
         writer = Write2File(output_path)
-        for article in article_gen(input_path):
+        for article in articles:
             article = self.process(article)
             writer.process(article)
-            articles_count += 1
-            if articles_count % 10000 == 0:
-                self.logger.info(f'{articles_count} articles processed.')
-        self.logger.info(f'Finish processing all articles.')
+            count += 1
+            if count % 10000 == 0:
+                self.logger.info(f'{count} articles processed.')
+
         self.logger.info(
-            f'Finish writing all processed articles to {output_path}')
-        self.logger.info(f'Processed {articles_count} articles')
+            f'Finish writing {count} processed articles to {output_path}')
 
     def process_all(self,
-                    articles_gen,
-                    input_path,
-                    output_path,
-                    use_multiprocessing=False,
-                    workers=4, max_queue_size=1000):
+                    articles: Iterable[Iterable[str]],
+                    output_path: str,
+                    use_multiprocessing: bool = True,
+                    workers: int = 4, max_queue_size: int = 1000):
+        """Process all articles.
+
+        Args:
+            articles (Iterable[Iterable[str]]): Articles to process.
+            output_path (str): Path to the output file on disk to save processed articles.
+            use_multiprocessing (bool, optional): Whether to use multi processes. Defaults to True.
+            workers (int, optional): Number of workers to process articles. Defaults to 4.
+            max_queue_size (int, optional): Maxixum size for both queues source and sink.
+                Defaults to 1000.
+        """
 
         if not use_multiprocessing:
-            return self.process_all_single_thread(articles_gen, input_path, output_path)
+            return self.process_all_single_thread(articles, output_path)
 
-        self.articles_gen = articles_gen
-        self.input_path = input_path
-        self.output_path = output_path
-        self.workers = max(workers, 1)
+        workers = max(workers, 1)
 
         self.logger.info('Begin to process all articles ...')
-        self.source = Queue(maxsize=max_queue_size)
-        self.sink = Queue(maxsize=max_queue_size)
-        self.articles_count = Value('L', 0)
 
-        processes = []
+        # create Queue for multiprocessing
+        source = Queue(maxsize=max_queue_size)
+        sink = Queue(maxsize=max_queue_size)
 
-        reader_proc = Process(target=enqueue_articles, args=(self, ))
-        reader_proc.daemon = True
-        reader_proc.start()
-        self.logger.info('A process starts to read articles to be processed.')
-        processes.append(reader_proc)
-
-        for _ in range(self.workers):
-            worker_proc = Process(target=process_articles, args=(self, ))
+        # create worker processes
+        worker_processes = []
+        for _ in range(workers):
+            worker_proc = Process(
+                target=_worker,
+                args=(self.pipelines, source, sink)
+            )
             worker_proc.daemon = True
             worker_proc.start()
-            processes.append(worker_proc)
+            worker_processes.append(worker_proc)
         self.logger.info(f'{workers} processes start to process articles.')
 
-        writer_proc = Process(target=write_articles, args=(self, ))
+        # create writer process
+        writer_proc = Process(target=_writer, args=(output_path, sink))
         writer_proc.daemon = True
         writer_proc.start()
         self.logger.info(
             f'A process starts to write processed article to disk.')
 
-        for p in processes:
-            p.join()
-        self.logger.info(f'Finish processing all articles.')
+        # put articles into source for workers to process
+        count = 0
+        for article in articles:
+            source.put(article)
+            count += 1
+        for _ in range(workers):
+            source.put('EXIT')
 
-        self.sink.put('EXIT')
+        for p in worker_processes:
+            p.join()
+        self.logger.info(f'Finish processing {count} articles.')
+
+        sink.put('EXIT')
         writer_proc.join()
-        self.logger.info(
-            f'Finish writing all processed articles to {output_path}')
-        self.logger.info(f'Processed {self.articles_count.value} articles')
 
     def __repr__(self):
         return f'Processor(pipelines={repr(self.pipelines)}'

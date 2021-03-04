@@ -54,7 +54,7 @@ def preprocess_news2016zh():
             RemoveStopwords(),
         ],
     )
-    processor.process_all(article_gen, input_path, output_path)
+    processor.process_all(article_gen(input_path), output_path)
 
 
 def train_news2016zh():
