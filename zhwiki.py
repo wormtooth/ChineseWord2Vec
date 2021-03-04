@@ -23,22 +23,28 @@ def download_zhwiki():
     logger.info(f'zhwiki downloaded: {path}')
 
 
+def articles_gen(path):
+    wiki = WikiCorpus(path, dictionary={})
+    for article in wiki.get_texts():
+        yield article
+
+
 def preprocess_zhwiki():
     output_path = settings.ZHWIKI_CLEANED_PATH
     if os.path.exists(output_path):
         logger.info(f'{output_path} existed. Skip preprocess.')
         logger.info(f'Delete {output_path} if preprocess needs to be redone.')
         return
-    
+
     input_path = settings.ZHWIKI_PATH
-    wiki = WikiCorpus(input_path, dictionary={})
     processor = Processor([
         ConvertT2S(),
         CutSentence(),
         RemoveNonChineseWords(),
         RemoveStopwords(),
     ])
-    processor.process_all(wiki.get_texts(), output_path)
+    processor.process_all(articles_gen, input_path, output_path)
+
 
 def train_zhwiki():
     opts = get_train_options()

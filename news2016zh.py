@@ -50,7 +50,7 @@ def preprocess_news2016zh():
             RemoveStopwords(),
         ],
     )
-    processor.process_all(article_gen(input_file), output_file)
+    processor.process_all(article_gen, input_file, output_file)
 
 
 def train_news2016zh():
@@ -62,5 +62,6 @@ def train_news2016zh():
 
 if __name__ == '__main__':
     download_news2016zh()
+    unzip_news2016zh()
     preprocess_news2016zh()
     train_news2016zh()

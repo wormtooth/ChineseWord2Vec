@@ -4,3 +4,4 @@ __pycache__/
 *.ipynb
 data/
 nohup.out
+.DS_Store

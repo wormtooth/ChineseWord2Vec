@@ -126,7 +126,7 @@ def enqueue_articles(processor: 'Processor'):
         processor (Processor): The processor is a subclass of `Pipeline`, and it contains
         multiple pipelines to process articles.
     """
-    for article in processor.articles:
+    for article in processor.articles_gen(processor.input_path):
         processor.source.put(article)
     for _ in range(processor.workers):
         processor.source.put('EXIT')
@@ -178,8 +178,13 @@ class Processor(Pipeline):
             article = func(article)
         return article
 
-    def process_all(self, articles, output_path, workers=4, max_queue_size=1000):
-        self.articles = articles
+    def process_all(self,
+                    articles_gen,
+                    input_path,
+                    output_path,
+                    workers=4, max_queue_size=1000):
+        self.articles_gen = articles_gen
+        self.input_path = input_path
         self.output_path = output_path
         self.workers = max(workers, 1)
 
