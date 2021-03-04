@@ -46,7 +46,7 @@ def train(opts):
 
     # train model
     model = Word2Vec(
-        sentences=LineSentence(opts.input_file),
+        corpus_file=opts.input_file,
         size=opts.vector_size,
         window=opts.window,
         min_count=opts.min_count,
