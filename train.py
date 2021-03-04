@@ -3,7 +3,7 @@ import logging
 import os
 
 from gensim.models import Word2Vec
-from gensim.models.word2vec import LineSentence
+from gensim.models.word2vec import LineSentence, PathLineSentences
 from gensim.models.callbacks import CallbackAny2Vec
 
 import settings
@@ -40,13 +40,28 @@ class TrainLogger(CallbackAny2Vec):
 
 @logger.catch(level=logging.WARNING)
 def train(opts):
+    # check opts
+    if opts.input_file == '' and opts.input_folder == '':
+        logger.error('Please specify either an input file or an input foler!')
+        return
+    if opts.input_file != '' and opts.input_folder != '':
+        logger.warning(
+            'Both input file and input folder are set. '
+            'Ignore input file: {opts.input_file}.'
+        )
+    sentences = None
+    if opts.input_folder != '':
+        sentences = PathLineSentences(opts.input_folder)
+    else:
+        sentences = LineSentence(opts.input_file)
+
     # model path
     name = f'{opts.name_prefix}_vs{opts.vector_size}w{opts.window}mc{opts.min_count}.model'
-    path = os.path.join(settings.FOLDER, name)
+    path = os.path.join(settings.MODEL_FOLDER, name)
 
     # train model
     model = Word2Vec(
-        corpus_file=opts.input_file,
+        sentences=sentences,
         size=opts.vector_size,
         window=opts.window,
         min_count=opts.min_count,
@@ -88,9 +103,14 @@ def get_train_options():
         help='Number of iterations (epochs) over the corpus. '
     )
     parser.add_argument(
-        '--input_file', '-i', type=str, default=settings.ZHWIKI_CLEANED_PATH,
+        '--input_file', '-i', type=str, default='',
         help='Input file to train the model. '
         'Format: each row is an article or a sentence, with words separated by whitespace.',
+    )
+    parser.add_argument(
+        '--input_folder', type=str, default='',
+        help='Input folder containing files to train the models.'
+        'Each file should be in the format as descriped in `--input_file` option.'
     )
     parser.add_argument(
         '--name_prefix', '-np', type=str, default='wordvec',
