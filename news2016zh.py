@@ -41,8 +41,12 @@ def article_gen(path):
 
 
 def preprocess_news2016zh():
-    input_file = settings.NEWS2016ZH_PATH
-    output_file = settings.NEWS2016ZH_CLEANED_PATH
+    input_path = settings.NEWS2016ZH_PATH
+    output_path = settings.NEWS2016ZH_CLEANED_PATH
+    if os.path.exists(output_path):
+        logger.info(f'{output_path} existed. Skip preprocess.')
+        logger.info(f'Delete {output_path} if preprocess needs to be redone.')
+        return
     processor = Processor(
         pipelines=[
             CutSentence(),
@@ -50,7 +54,7 @@ def preprocess_news2016zh():
             RemoveStopwords(),
         ],
     )
-    processor.process_all(article_gen, input_file, output_file)
+    processor.process_all(article_gen, input_path, output_path)
 
 
 def train_news2016zh():

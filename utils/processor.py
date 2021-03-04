@@ -178,11 +178,34 @@ class Processor(Pipeline):
             article = func(article)
         return article
 
+    def process_all_single_thread(self,
+                                  article_gen,
+                                  input_path,
+                                  output_path):
+        self.logger.info('Begin to process all articles ...')
+        articles_count = 0
+        writer = Write2File(output_path)
+        for article in article_gen(input_path):
+            article = self.process(article)
+            writer.process(article)
+            articles_count += 1
+            if articles_count % 10000 == 0:
+                self.logger.info(f'{articles_count} articles processed.')
+        self.logger.info(f'Finish processing all articles.')
+        self.logger.info(
+            f'Finish writing all processed articles to {output_path}')
+        self.logger.info(f'Processed {articles_count} articles')
+
     def process_all(self,
                     articles_gen,
                     input_path,
                     output_path,
+                    use_multiprocessing=False,
                     workers=4, max_queue_size=1000):
+
+        if not use_multiprocessing:
+            return self.process_all_single_thread(articles_gen, input_path, output_path)
+
         self.articles_gen = articles_gen
         self.input_path = input_path
         self.output_path = output_path
